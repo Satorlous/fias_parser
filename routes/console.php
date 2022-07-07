@@ -1,16 +1,15 @@
 <?php
 
-use App\Http\Controllers\MainController;
-use App\Models\Redis\AddrObjDadata;
+use App\Project\App as MyApp;
 use App\Models\Redis\AddrObjParsed;
 use App\Models\Redis\LevelType;
 use App\Models\Redis\Regions;
+use App\Project\DadataTools;
 use App\Project\Fias\CSVWriter;
-use App\Project\Fias\DadataKeys;
 use App\Project\Fias\Parsers\AddrObjTypeParser;
-use Dadata\DadataClient;
-use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use League\Csv\Reader;
+use Project\Fias\DataBuilder;
 use Project\Fias\Parsers\File\AddrObjParser;
 use Project\Fias\Parsers\File\AdmHierarchyParser;
 use Project\Fias\Parsers\RegionsParser;
@@ -25,42 +24,6 @@ use Project\Fias\Parsers\RegionsParser;
 | simple approach to interacting with each command's IO methods.
 |
 */
-
-Artisan::command('fias:build', function () {
-    $mainController = new MainController();
-    $mainController->buildData();
-});
-
-Artisan::command('fias:writecsv', function () {
-    $obCsvWriter = new CSVWriter();
-    foreach (Regions::get() as $sRegionCode) {
-        $obAddrObjRedis = new AddrObjParsed($sRegionCode);
-        $arObjects      = $obAddrObjRedis->getAll()->toArray();
-        $obCsvWriter->insertAll($arObjects);
-        dump($sRegionCode . " - WRITED");
-    }
-});
-
-Artisan::command('fias:writejson', function () {
-    $arAllObjects = [];
-    foreach (Regions::get() as $sRegionCode) {
-        $obAddrObjRedis = new AddrObjParsed($sRegionCode);
-        $arObjects      = $obAddrObjRedis->getAll()->toArray();
-        $arAllObjects[] = $arObjects;
-        dump($sRegionCode . " - is added");
-    }
-    $arAllObjects = array_merge([], ...$arAllObjects);
-    $sFilename    = dirname(__DIR__, 1) . "/storage/fias/objects.json";
-    file_put_contents($sFilename, json_encode($arAllObjects, JSON_UNESCAPED_UNICODE));
-    dump("finish");
-});
-
-Artisan::command('fias:types:writejson', function () {
-    $arTypes   = (new LevelType())->getAll()->toArray();
-    $sFilename = dirname(__DIR__, 1) . "/storage/fias/types.json";
-    file_put_contents($sFilename, json_encode($arTypes, JSON_UNESCAPED_UNICODE));
-    dump("finish");
-});
 
 Artisan::command('index:addr', function () {
     $oRegionParser = new RegionsParser();
@@ -97,45 +60,121 @@ Artisan::command('index:children', function () {
     }
 });
 
-Artisan::command('parse:dadata', function () {
-    $obLocations = AddrObjDadata::getByAllRegions();
-    dd($obLocations->count());
-    $arApiKeys         = array_values(DadataKeys::KEYS);
-    $i                 = 0;
-    $arDadataResponses = [];
-    foreach ($obLocations->chunk(10000) as $obChunk) {
-        $obDadata = new DadataClient($arApiKeys[$i]["API"], null);
-        foreach ($obChunk->chunk(30) as $obSecChunks) {
-            foreach ($obSecChunks as $arLocation) {
-                $arResponse                                 = $obDadata->findById(
-                    "address",
-                    $arLocation["OBJECTGUID"]
-                )[0];
-                $arDadataResponses[$arLocation["OBJECTID"]] = $arResponse;
-                AddrObjDadata::removeByKey($arLocation["REGIONCODE"], $arLocation["OBJECTID"]);
-            }
-            sleep(1);
-        }
-        dump("$i - 10000 - OK");
-        if (++$i === 9) {
-            break;
-        }
+Artisan::command('fias:build', function () {
+    set_time_limit(0);
+    foreach (Regions::get() as $sRegionCode) {
+        $obDataBuilder = new DataBuilder($sRegionCode);
+        $obDataBuilder->build();
+        dump($sRegionCode . " - OK");
     }
-    file_put_contents(
-        "/var/www/html/storage/fias/dadata_1.json",
-        json_encode($arDadataResponses, JSON_UNESCAPED_UNICODE)
-    );
 });
 
-Artisan::command('parse:chunk', function () {
-    $obLocations = AddrObjDadata::getByAllRegions();
-    $i           = 1;
-    foreach ($obLocations->chunk(9900) as $obChunk) {
-        $arFiases = $obChunk->map(fn($el) => $el["OBJECTGUID"])->values()->toArray();
-        file_put_contents(
-            "/var/www/html/storage/fias/chunks/dadata_$i.json",
-            json_encode($arFiases, JSON_UNESCAPED_UNICODE)
-        );
+Artisan::command('fias:writecsv', function () {
+    $obCsvWriter = new CSVWriter();
+    foreach (Regions::get() as $sRegionCode) {
+        $obAddrObjRedis = new AddrObjParsed($sRegionCode);
+        $arObjects      = $obAddrObjRedis->getAll()->toArray();
+        $obCsvWriter->insertAll($arObjects);
+        dump($sRegionCode . " - WRITED");
+    }
+});
+
+Artisan::command('fias:writejson', function () {
+    $arAllObjects = [];
+    foreach (Regions::get() as $sRegionCode) {
+        $obAddrObjRedis = new AddrObjParsed($sRegionCode);
+        $arObjects      = $obAddrObjRedis->getAll()->toArray();
+        $arAllObjects[] = $arObjects;
+        dump($sRegionCode . " - is added");
+    }
+    $arAllObjects = array_merge([], ...$arAllObjects);
+    $sFilename    = dirname(__DIR__, 1) . "/storage/fias/objects.json";
+    file_put_contents($sFilename, json_encode($arAllObjects, JSON_UNESCAPED_UNICODE));
+    dump("finish");
+});
+
+Artisan::command('fias:types:writejson', function () {
+    $arTypes   = (new LevelType())->getAll()->toArray();
+    $sFilename = dirname(__DIR__, 1) . "/storage/fias/types.json";
+    file_put_contents($sFilename, json_encode($arTypes, JSON_UNESCAPED_UNICODE));
+    dump("finish");
+});
+
+Artisan::command("unparsed", function () {
+    $arParsedFiases   = [];
+    $sRootDir         = env("DOCKER_ROOT_DIR");
+    $obAddrCollection = MyApp::getJsonCollection($sRootDir . "/storage/fias/objects.json");
+    foreach (glob($sRootDir . "/storage/results/dadata_*.json") as $sParsedFileName) {
+        $arDadataParsedKeys = MyApp::getJsonCollection($sParsedFileName)
+            ->filter(fn($el) => empty($el["value"]))
+            ->keys()
+            ->toArray();
+        $arParsedFiases     = array_merge([], $arParsedFiases, $arDadataParsedKeys);
+    }
+    $obNeedToParse    = $obAddrCollection
+        ->filter(fn($el) => !in_array($el["OBJECTGUID"], $arParsedFiases))
+        ->map(fn($el) => $el["OBJECTGUID"])
+        ->values();
+    $sNeedToParseJson = $obNeedToParse->toJson(JSON_UNESCAPED_UNICODE);
+    file_put_contents($sRootDir . "/storage/needtoparse/needtoparse.json", $sNeedToParseJson);
+    $this->info("File saved");
+});
+
+Artisan::command('parse:rebound', function () {
+    $sRootDir             = env("DOCKER_ROOT_DIR");
+    $sNeedToParseFilename = $sRootDir . "/storage/needtoparse/needtoparse.json";
+    $obCollection         = MyApp::getJsonCollection($sNeedToParseFilename);
+    $i                    = 1;
+    foreach ($obCollection->chunk(9900) as $obChunk) {
+        MyApp::saveToFile("$sRootDir/storage/chunks/dadata_$i.json", $obChunk->toArray());
         $i++;
     }
+});
+
+Artisan::command('parse:chunk {number}', function ($number) {
+    $sRootDir        = env("DOCKER_ROOT_DIR");
+    $arFiles         = glob("$sRootDir/storage/chunks/dadata_$number.json");
+    $sPath           = current($arFiles);
+    $sResultsDir     = "$sRootDir/storage/results/";
+    $sResultFileName = $sResultsDir . "dadata_a_$number.json";
+    $obFiases        = MyApp::getJsonCollection($sPath);
+    $obDadata        = new DadataTools();
+    $arResponses     = [];
+    $i               = 1;
+    foreach ($obFiases->chunk(25) as $arFiases) {
+        foreach ($arFiases as $sFias) {
+            @$arResponse = current($obDadata->getElementsById($sFias)["suggestions"]);
+            @$arResponses[$sFias] = $arResponse;
+        }
+        dump($i);
+        $i++;
+        sleep(1);
+    }
+    MyApp::saveToFile($sResultFileName, $arResponses);
+});
+
+Artisan::command("parse:join", function () {
+    $arRequiredFields = [
+        "postal_code",
+        "fias_id",
+        "kladr_id",
+        "geo_lat",
+        "geo_lon",
+        "timezone"
+    ];
+    $arParsedObjects  = [];
+    $sRootDir         = env("DOCKER_ROOT_DIR");
+    foreach (glob($sRootDir . "/storage/results/dadata_*.json") as $sParsedFileName) {
+        $arDadataObjects   = MyApp::getJsonCollection($sParsedFileName);
+        $arParsedObjects[] = $arDadataObjects->toArray();
+    }
+    $obParsedCollection         = collect(array_merge([], ...$arParsedObjects))->filter();
+    $obDadataCollectionRequired = $obParsedCollection
+        ->map(fn($el) => [
+            "value" => $el["value"],
+            ...collect($el["data"])->filter(fn($value, $key) => in_array($key, $arRequiredFields, 1))
+        ]);
+    MyApp::saveToFile($sRootDir . "/storage/dadata_responses_full.json", $obParsedCollection->toArray());
+    MyApp::saveToFile($sRootDir . "/storage/dadata_responses_required.json", $obDadataCollectionRequired->toArray());
+    $this->info("File saved!");
 });

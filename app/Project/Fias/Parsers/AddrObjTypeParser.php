@@ -18,14 +18,12 @@ class AddrObjTypeParser
 
     public const TYPES_DB      = [
         1 => "COUNTRY", //Страна
-
+        2 => "COUNTRY_DISTRICT", //Округ
         3 => "REGION", // Область
         4 => "SUBREGION", // Район области
         5 => "CITY", // Город
         6 => "VILLAGE", // Село
         8 => "CITY_DISTRICT", // Район города
-
-        2 => "COUNTRY_DISTRICT", //Округ
     ];
 
     public function __construct()

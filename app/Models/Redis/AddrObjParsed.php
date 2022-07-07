@@ -65,4 +65,14 @@ class AddrObjParsed
     {
         return $this->getAll()->filter(fn($el) => $el["HAS_CHILDREN"] === "1");
     }
+
+    public static function getByAllRegions(): Collection
+    {
+        $obCollection = new Collection();
+        foreach (Regions::get() as $sRegionCode) {
+            $obSelf = new static($sRegionCode);
+            $obCollection->push(...$obSelf->getAll());
+        }
+        return $obCollection;
+    }
 }

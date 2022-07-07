@@ -46,36 +46,6 @@ abstract class BaseParser
         }
     }
 
-    public function parseToArray()
-    {
-        /** @var XMLReader $obXmlReader */
-        $obXmlReader = XMLReader::open($this->sFileName);
-        $arElements  = [];
-        while ($obXmlReader->read()) {
-            if (
-                ($obXmlReader->name === static::$sXmlElementName) &&
-                $arElement = $this->makeElement($obXmlReader->readOuterXml())
-            ) {
-                if (static::$sIndexProperty && $sPropValue = $arElement[static::$sIndexProperty]) {
-                    $this->oRedis->hset(
-                        static::$sRedisKey,
-                        $sPropValue,
-                        json_encode($arElement, JSON_UNESCAPED_UNICODE)
-                    );
-                } else {
-                    throw new RuntimeException(
-                        "Element doesn't have key " . static::$sIndexProperty
-                        . PHP_EOL . json_encode($arElement, JSON_UNESCAPED_UNICODE)
-                    );
-                }
-            }
-            unset($arElement);
-            gc_collect_cycles();
-        }
-        $obXmlReader->close();
-        return $arElements;
-    }
-
     protected function makeElement(string $sXml): ?array
     {
         $obXml     = new SimpleXMLElement($sXml);
@@ -103,38 +73,6 @@ abstract class BaseParser
             },
             ARRAY_FILTER_USE_KEY
         );
-    }
-
-    protected function getCacheFileName()
-    {
-        return str_replace(["XML", self::SOURCE_DIR], ["json", self::CACHE_DIR], $this->sFileName);
-    }
-
-    public function getContent(): array
-    {
-        if ($this->bUseCache) {
-            $sCacheFile = $this->getCacheFileName();
-            if (!is_file($sCacheFile)) {
-                $arXml = $this->parseToArray();
-                $this->saveToFile($sCacheFile, json_encode($arXml, JSON_UNESCAPED_UNICODE));
-                return $arXml;
-            }
-            return json_decode(file_get_contents($sCacheFile), JSON_OBJECT_AS_ARRAY);
-        }
-        return $this->parseToArray();
-    }
-
-    protected function saveToFile($sPath, $mxContent): void
-    {
-        $arParts = explode('/', trim($sPath, "/"));
-        $sFile   = array_pop($arParts);
-        $sDir    = "";
-        foreach ($arParts as $sPart) {
-            if (!is_dir($sDir .= "/$sPart") && !mkdir($sDir) && !is_dir($sDir)) {
-                throw new RuntimeException(sprintf('Directory "%s" was not created', $sDir));
-            }
-        }
-        file_put_contents($sDir . "/" . $sFile, $mxContent);
     }
 
     public function indexRedis(): void
